@@ -1,0 +1,144 @@
+name: build-ax6000-stock
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'configs/ax6000-stock.config'
+      - '.github/workflows/build-stock.yml'
+
+concurrency:
+  group: build-stock-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    steps:
+      - name: "0. 释放磁盘空间"
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+
+      - name: "1. 检出仓库"
+        uses: actions/checkout@v4
+
+      - name: "2. 安装编译依赖"
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get -y install build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3 rsync unzip zlib1g-dev file wget ca-certificates \
+            device-tree-compiler quilt bc time ccache
+          df -h /
+
+      - name: "3. 拉取 ImmortalWrt v25.12.2 + 最新 feeds"
+        run: |
+          set -e
+          git clone --depth 1 --branch v25.12.2 \
+            https://github.com/immortalwrt/immortalwrt.git openwrt
+          cd openwrt
+          # 包源全部跟踪 openwrt-25.12 分支最新提交；OpenClash 跟踪 master 最新
+          printf '%s\n' \
+            'src-git packages https://github.com/immortalwrt/packages.git;openwrt-25.12' \
+            'src-git luci https://github.com/immortalwrt/luci.git;openwrt-25.12' \
+            'src-git routing https://github.com/openwrt/routing.git;openwrt-25.12' \
+            'src-git telephony https://github.com/openwrt/telephony.git;openwrt-25.12' \
+            'src-git video https://github.com/openwrt/video.git;openwrt-25.12' \
+            'src-git openclash https://github.com/vernesong/OpenClash.git;master' \
+            > feeds.conf.default
+          cat feeds.conf.default
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: "4. 应用配置并核对目标机型"
+        run: |
+          set -e
+          cd openwrt
+          cp "$GITHUB_WORKSPACE/configs/ax6000-stock.config" .config
+          make defconfig
+          echo "=== 机型选择（必须只有 -stock）==="
+          grep -E "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_xiaomi_redmi-router-ax6000" .config
+          if grep -q "ax6000-ubootmod=y" .config; then
+            echo "::error::误选了 ubootmod，本机是 stock 布局，终止"; exit 1
+          fi
+          echo "=== 三件套核对 ==="
+          for p in luci-app-openclash luci-proto-wireguard luci-app-upnp miniupnpd-nftables ruby-yaml; do
+            grep -q "CONFIG_PACKAGE_${p}=y" .config && echo "  OK  $p" || { echo "::error::缺少 $p"; exit 1; }
+          done
+
+      - name: "5. 记录版本清单"
+        run: |
+          set -e
+          cd openwrt
+          {
+            echo "# 构建版本清单 (UTC $(date -u +%FT%TZ))"
+            echo "repo:      ${{ github.repository }} @ ${{ github.sha }}"
+            echo "base:      immortalwrt v25.12.2 $(git rev-parse HEAD)"
+            for d in feeds/packages feeds/luci feeds/routing feeds/openclash; do
+              if [ -d "$d/.git" ]; then
+                echo "$(printf '%-10s' "${d##*/}") $(git -C $d rev-parse HEAD) $(git -C $d log -1 --date=short --format=%cd)"
+              fi
+            done
+            echo "openclash:        $(grep -m1 '^PKG_VERSION' feeds/openclash/luci-app-openclash/Makefile)"
+            echo "miniupnpd:        $(grep -m1 '^PKG_VERSION' feeds/packages/net/miniupnpd/Makefile)"
+            echo "wireguard-tools:  $(grep -m1 '^PKG_VERSION' package/network/utils/wireguard-tools/Makefile)"
+            echo "kernel:           $(grep -m1 '^KERNEL_PATCHVER' target/linux/mediatek/Makefile)"
+          } | tee "$GITHUB_WORKSPACE/VERSIONS.txt"
+
+      - name: "6. 预下载源码包"
+        continue-on-error: true
+        run: cd openwrt && make download -j8
+
+      - name: "7. 编译（失败自动回退单线程详细日志）"
+        run: |
+          cd openwrt
+          set -o pipefail
+          make -j"$(nproc)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "=== 并行编译失败，改用单线程详细日志重试 ==="
+            make -j1 V=s 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+          fi
+
+      - name: "8. 产物校验"
+        run: |
+          set -e
+          cd openwrt/bin/targets/mediatek/filogic
+          echo "=== 产物列表 ==="
+          ls -lh *ax6000-stock* || { echo "::error::没有找到 stock 产物"; exit 1; }
+          sha256sum *ax6000-stock* | tee "$GITHUB_WORKSPACE/SHA256SUMS.txt"
+          cp *ax6000-stock-squashfs-sysupgrade.bin "$GITHUB_WORKSPACE/"
+          cp *ax6000-stock-initramfs-factory.ubi "$GITHUB_WORKSPACE/" 2>/dev/null || true
+          cp *.manifest "$GITHUB_WORKSPACE/" 2>/dev/null || true
+
+      - name: "9. 上传固件"
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-25.12.2-ax6000-stock
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            SHA256SUMS.txt
+            VERSIONS.txt
+            *ax6000-stock-squashfs-sysupgrade.bin
+            *ax6000-stock-initramfs-factory.ubi
+            *.manifest
+
+      - name: "10. 失败时上传日志"
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-failed
+          retention-days: 7
+          path: |
+            build.log
+            VERSIONS.txt
