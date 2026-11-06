@@ -69,3 +69,16 @@ SHA256SUMS.txt · VERSIONS.txt                                                  
 - Argon 主题已编译进镜像并在首次启动设为默认（主题包自带的 `30_luci-theme-argon` + 本仓库的 `99-default-theme-argon`）。
 - `Factory`/`Nvram`/`Bdata`/`BL2`/`FIP` 全程不写，不会黑砖。
 - 若 ISP 绑定了 WAN MAC，升级后需手工改回旧 MAC（Factory 里读到的是 `24:cf:24:5d:6d:3f/.40`）。
+
+## 构建耗时参考
+
+保留 filogic 默认包 `bridger`（二层桥加速）→ 它 `include bpf.mk` → `select NEED_BPF_TOOLCHAIN`
+→ `tools/llvm-bpf` 会从源码构建 LLVM 21.1.6（仅 BPF 后端）。
+
+| 环境 | 耗时 |
+|---|---|
+| GitHub Actions（4 vCPU，冷缓存） | 75~95 min |
+| 本机 WSL2（i5-9400F 6 核） | 65~85 min |
+
+若不需要二层桥转发加速，可在 `configs/ax6000-stock.config` 加一行
+`# CONFIG_PACKAGE_bridger is not set`，可直接省掉 25~35 分钟。
