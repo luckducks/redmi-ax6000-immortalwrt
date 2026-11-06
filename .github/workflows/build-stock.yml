@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: build-stock-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -106,6 +106,25 @@ jobs:
       - name: "6. 预下载源码包"
         continue-on-error: true
         run: cd openwrt && make download -j8
+
+      - name: "6.5 跳过 llvm-bpf（本镜像无 eBPF 包，省 25~35 分钟）"
+        run: |
+          set -e
+          cd openwrt
+          echo "--- patch 前 ---"
+          grep -n "llvm-bpf" tools/Makefile | head -3
+          sed -i 's|^tools-$(if $(CONFIG_BUILD_ALL_HOST_TOOLS)$(CONFIG_USE_LLVM_BUILD),y) += llvm-bpf|# llvm-bpf skipped: this image selects no eBPF packages|' tools/Makefile
+          echo "--- patch 后 ---"
+          if grep -q "llvm-bpf skipped" tools/Makefile; then
+            echo "OK: llvm-bpf 已从 tools 列表摘除"
+          else
+            echo "::warning::未匹配到 llvm-bpf 行（上游可能改过实现），继续构建"
+          fi
+          # 再确认：镜像里没有 eBPF 相关包
+          if grep -qE "^CONFIG_PACKAGE_(libbpf|bpftool|xdp-tools)=y" .config; then
+            echo "::error::镜像里有 eBPF 包，不能跳过 llvm-bpf"; exit 1
+          fi
+          echo "无 eBPF 包，跳过安全"
 
       - name: "7. 编译（失败自动回退单线程详细日志）"
         run: |
