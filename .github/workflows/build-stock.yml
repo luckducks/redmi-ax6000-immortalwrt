@@ -83,6 +83,12 @@ jobs:
                    luci-theme-argon luci-app-argon-config; do
             grep -q "CONFIG_PACKAGE_${p}=y" .config && echo "  OK  $p" || { echo "::error::缺少 $p"; exit 1; }
           done
+          echo "=== eBPF / bridger 必须为关（否则会拖出 llvm-bpf）==="
+          if grep -q "^CONFIG_PACKAGE_bridger=y" .config; then
+            echo "::error::bridger 仍启用，llvm-bpf 会被编译"; exit 1
+          fi
+          echo "  OK  bridger 已剔除"
+          grep -E "^CONFIG_(USE_LLVM_BUILD|NEED_BPF_TOOLCHAIN|BPF_TOOLCHAIN)" .config || echo "  OK  无 BPF 工具链选项被启用"
 
       - name: "5. 记录版本清单"
         run: |
@@ -107,24 +113,23 @@ jobs:
         continue-on-error: true
         run: cd openwrt && make download -j8
 
-      - name: "6.5 跳过 llvm-bpf（本镜像无 eBPF 包，省 25~35 分钟）"
+      - name: "6.5 确认不编 llvm-bpf"
         run: |
           set -e
           cd openwrt
-          echo "--- patch 前 ---"
-          grep -n "llvm-bpf" tools/Makefile | head -3
-          sed -i 's|^tools-$(if $(CONFIG_BUILD_ALL_HOST_TOOLS)$(CONFIG_USE_LLVM_BUILD),y) += llvm-bpf|# llvm-bpf skipped: this image selects no eBPF packages|' tools/Makefile
-          echo "--- patch 后 ---"
-          if grep -q "llvm-bpf skipped" tools/Makefile; then
-            echo "OK: llvm-bpf 已从 tools 列表摘除"
+          echo "--- BPF 相关 kconfig ---"
+          grep -E "^CONFIG_(USE_LLVM_BUILD|NEED_BPF_TOOLCHAIN|BPF_TOOLCHAIN|USE_LLVM_HOST)" .config || echo "  (均未启用)"
+          if grep -q "^CONFIG_USE_LLVM_BUILD=y" .config; then
+            echo "::warning::USE_LLVM_BUILD 仍启用，强制从 tools 列表摘除 llvm-bpf"
+            sed -i 's|^tools-$(if $(CONFIG_BUILD_ALL_HOST_TOOLS)$(CONFIG_USE_LLVM_BUILD),y) += llvm-bpf|# llvm-bpf skipped|' tools/Makefile
           else
-            echo "::warning::未匹配到 llvm-bpf 行（上游可能改过实现），继续构建"
+            echo "OK: 本次构建不会出现 llvm-bpf"
           fi
-          # 再确认：镜像里没有 eBPF 相关包
-          if grep -qE "^CONFIG_PACKAGE_(libbpf|bpftool|xdp-tools)=y" .config; then
-            echo "::error::镜像里有 eBPF 包，不能跳过 llvm-bpf"; exit 1
-          fi
-          echo "无 eBPF 包，跳过安全"
+          # 硬保险：镜像里不得残留任何 bpf.mk 消费者
+          for p in bridger qosify unetd xdp-tools; do
+            grep -q "^CONFIG_PACKAGE_${p}=y" .config && { echo "::error::仍有 eBPF 包 ${p}"; exit 1; } || true
+          done
+          echo "确认无 eBPF 包"
 
       - name: "7. 编译（失败自动回退单线程详细日志）"
         run: |
