@@ -1,0 +1,9 @@
+# 构建产物与本地私有文件，永不入库
+private/
+*.log
+*.tar.gz
+*.bin
+*.ubi
+!files/**
+build/
+openwrt/

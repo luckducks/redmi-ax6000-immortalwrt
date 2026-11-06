@@ -1,0 +1,31 @@
+#!/bin/sh
+# 首次启动默认值（非敏感）：LAN 网段 / 主机名 / 时区 / NTP
+# 执行一次后本文件会被自动删除
+
+uci -q batch <<-EOF
+	set network.lan.ipaddr='192.168.2.1'
+	set network.lan.netmask='255.255.255.0'
+	set network.lan.ip6assign='64'
+	commit network
+EOF
+
+uci -q batch <<-EOF
+	set system.@system[0].hostname='ImmortalWrt'
+	set system.@system[0].timezone='CST-8'
+	set system.@system[0].zonename='Asia/Shanghai'
+	commit system
+EOF
+
+if uci -q get system.ntp >/dev/null 2>&1; then
+	uci -q batch <<-EOF
+		set system.ntp.enabled='1'
+		set system.ntp.enable_server='0'
+		delete system.ntp.server
+		add_list system.ntp.server='ntp.tencent.com'
+		add_list system.ntp.server='ntp1.aliyun.com'
+		add_list system.ntp.server='cn.pool.ntp.org'
+		commit system
+	EOF
+fi
+
+exit 0

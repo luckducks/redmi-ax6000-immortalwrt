@@ -40,6 +40,20 @@ immortalwrt-25.12.2-mediatek-filogic.manifest                                   
 SHA256SUMS.txt · VERSIONS.txt                                                                   ← 校验 + 版本存证
 ```
 
+## 首次启动默认值（预置）
+
+镜像里通过 `files/etc/uci-defaults/` 注入，首次开机自动执行一次：
+
+| 项目 | 值 | 来源 |
+|---|---|---|
+| LAN 地址 | `192.168.2.1/24`（不是官方的 192.168.1.1） | 仓库 `files/`（公开） |
+| 主机名 / 时区 | `ImmortalWrt` / `Asia/Shanghai` | 仓库 `files/` |
+| NTP | ntp.tencent.com / ntp1.aliyun.com / cn.pool.ntp.org | 仓库 `files/` |
+| 默认主题 | Argon | 仓库 `files/` |
+| PPPoE / WireGuard / WiFi | 按需 | **`D:\ax6000\private\99-provision`**（本机私有，不入库、不进 Actions） |
+
+私有文件由本地构建脚本自动注入；若未提供，则首次开机为「无 PPPoE、无 WiFi 密码、无 WG」的干净状态，在 LuCI 里手配即可。
+
 ## 刷入（摘要）
 
 1. 电脑网线接 LAN 口，静态 IP `192.168.31.100/24`
