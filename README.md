@@ -29,6 +29,7 @@
 | OpenClash | `luci-app-openclash` + `ruby` `ruby-yaml` `kmod-tun` `kmod-nft-tproxy` `kmod-inet-diag` | ruby 依赖约 15~20MB，注意 overlay 余量 |
 | WireGuard | `kmod-wireguard` `wireguard-tools` `luci-proto-wireguard` `qrencode` | 内核模块随内核同源编译，无 ABI 问题 |
 | UPnP | `luci-app-upnp` + `miniupnpd-nftables`（当前 2.3.9） | 25.12 默认 firewall4，选 nftables 变体 |
+| 主题 | `luci-theme-argon` 2.4.7 + `luci-app-argon-config` | 开机即为默认主题（`files/etc/uci-defaults/99-default-theme-argon` 注入） |
 
 产物（Actions → Artifacts）：
 
@@ -51,5 +52,6 @@ SHA256SUMS.txt · VERSIONS.txt                                                  
 ## 注意
 
 - 本仓库不含任何密钥/密码，仅构建配置。
+- Argon 主题已编译进镜像并在首次启动设为默认（主题包自带的 `30_luci-theme-argon` + 本仓库的 `99-default-theme-argon`）。
 - `Factory`/`Nvram`/`Bdata`/`BL2`/`FIP` 全程不写，不会黑砖。
 - 若 ISP 绑定了 WAN MAC，升级后需手工改回旧 MAC（Factory 里读到的是 `24:cf:24:5d:6d:3f/.40`）。

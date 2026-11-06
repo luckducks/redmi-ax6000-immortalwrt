@@ -1,0 +1,8 @@
+#!/bin/sh
+# 把 Argon 设为默认主题（首次启动执行一次，执行后本脚本会被自动删除）
+uci -q batch <<-EOF
+	set luci.themes.Argon='/luci-static/argon'
+	set luci.main.mediaurlbase='/luci-static/argon'
+	commit luci
+EOF
+exit 0

@@ -60,19 +60,27 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: "4. 应用配置并核对目标机型"
+      - name: "4. 应用配置 + 注入默认主题 + 核对机型"
         run: |
           set -e
           cd openwrt
           cp "$GITHUB_WORKSPACE/configs/ax6000-stock.config" .config
+          # 顶层 files/ 会被 prepare_rootfs 复制进 rootfs：把 Argon 设为默认主题
+          mkdir -p files/etc/uci-defaults
+          cp "$GITHUB_WORKSPACE/files/etc/uci-defaults/99-default-theme-argon" files/etc/uci-defaults/
+          chmod +x files/etc/uci-defaults/99-default-theme-argon
+          ls -l files/etc/uci-defaults/
           make defconfig
           echo "=== 机型选择（必须只有 -stock）==="
           grep -E "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_xiaomi_redmi-router-ax6000" .config
           if grep -q "ax6000-ubootmod=y" .config; then
             echo "::error::误选了 ubootmod，本机是 stock 布局，终止"; exit 1
           fi
-          echo "=== 三件套核对 ==="
-          for p in luci-app-openclash luci-proto-wireguard luci-app-upnp miniupnpd-nftables ruby-yaml; do
+          echo "=== 组件核对 ==="
+          for p in luci-app-openclash ruby-yaml kmod-tun kmod-nft-tproxy \
+                   kmod-wireguard wireguard-tools luci-proto-wireguard \
+                   luci-app-upnp miniupnpd-nftables \
+                   luci-theme-argon luci-app-argon-config; do
             grep -q "CONFIG_PACKAGE_${p}=y" .config && echo "  OK  $p" || { echo "::error::缺少 $p"; exit 1; }
           done
 
